@@ -83,13 +83,15 @@ elif module.startswith("2"):
                  if (RESULTS / "module2" / "fate_analysis.png").exists() else None)
 
 elif module.startswith("3"):
-    st.header("Does partial reprogramming move aged cells toward young states?")
-    df = load_csv(RESULTS / "module3" / "scored_cell_types.csv")
+    st.header("Does partial reprogramming move aged tissue toward a young state?")
+    df = load_csv(RESULTS / "module3" / "tissue_scores.csv")
     if df is None:
         missing("integration")
     else:
+        st.caption("Browder 2022 bulk RNA-seq (6 tissues, 7-month cyclic OSK) projected "
+                   "onto the Tabula Muris Senis aging axis. Negative Δ = 4F shifted young.")
         st.dataframe(df, use_container_width=True)
-        png = RESULTS / "module3" / "scvi_integration.png"
+        png = RESULTS / "module3" / "aging_score.png"
         if png.exists():
             st.image(str(png))
 

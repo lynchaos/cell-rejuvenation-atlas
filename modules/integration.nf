@@ -12,10 +12,10 @@ process DOWNLOAD_MODULE3 {
     """
 }
 
-process SCVI_INTEGRATE {
-    tag 'scvi-integration'
+process AGING_SCORE {
+    tag 'tms-signature-x-browder'
     publishDir "${params.outdir}/module3", mode: 'copy'
-    label 'gpu'
+    label 'medium'
 
     input:
     path data_dir
@@ -25,9 +25,9 @@ process SCVI_INTEGRATE {
 
     script:
     """
-    python -m src.module3_multiomics_integration.scvi_integration \
+    python -m src.module3_multiomics_integration.aging_signature_score \
         --tms ${data_dir}/tabula_muris_senis/tms.h5ad \
-        --browder ${data_dir}/browder_long7m/browder.h5ad \
-        --outdir module3_out --max-epochs ${params.max_epochs}
+        --browder ${data_dir}/browder_long7m/GSE190983_count.tsv.gz \
+        --outdir module3_out
     """
 }

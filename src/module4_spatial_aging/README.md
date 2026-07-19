@@ -6,12 +6,12 @@ Allen et al. (2023, *Cell*) used MERFISH to map how cell types and their **spati
 
 ## Data
 
-* GEO: **GSE207848** (MERFISH count matrices + spatial coordinates + cell metadata)
+* Annotated object (378,918 cells × 374 genes, with spatial coordinates, donor, slice and age labels) via **CELLxGENE** collection 31937775-0602-4e52-a799-b6acdd2bac2e ("BrainAgingSpatialAtlas_MERFISH"). GEO **GSE207848** ships only raw per-run archives without unified cell typing, so the curated object is used.
 
 ## What the code does
 
-1. `download_data.py` — fetch processed MERFISH matrices.
-2. `squidpy_analysis.py` — build spatial kNN graphs, compute neighborhood enrichment, Moran's I spatial autocorrelation of aging markers, and spatially-variable gene detection per age group.
+1. `download_data.py` — fetch the annotated h5ad from CELLxGENE.
+2. `squidpy_analysis.py` — spatial kNN graphs, neighborhood enrichment and Moran's I for aging markers, per age group. **All graphs are built within a (donor, slice) section** and statistics averaged across sections — pooling cells across slices would create false spatial neighbors.
 
 ## Run
 

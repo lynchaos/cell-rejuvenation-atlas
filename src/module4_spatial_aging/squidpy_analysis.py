@@ -1,9 +1,13 @@
 """Spatial analysis of MERFISH aging-brain data with Squidpy.
 
-Computes:
-  * spatial kNN graphs per section
+Computes, per age group:
   * neighborhood enrichment (do cell types co-localize more with age?)
   * Moran's I for aging-associated markers (spatial autocorrelation)
+
+All spatial graphs are built WITHIN a (donor, slice) section and the resulting
+z-scores / Moran's I values are averaged across sections of the same age.
+Pooling cells across sections would create false spatial neighbors between
+cells that were never on the same tissue slice.
 
 Usage:
     python -m src.module4_spatial_aging.squidpy_analysis \
@@ -14,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import anndata as ad
@@ -26,12 +31,17 @@ import squidpy as sq
 from src.common.plotting import use_style
 
 AGING_MARKERS = ["C4b", "Cst3", "B2m", "Gfap", "Aqp1", "Il33", "Vim"]
+GROUP_KEYS = ("donor_id", "slice")
+MIN_CELLS_PER_SECTION = 500
 
 
 def load_merfish(indir: Path) -> ad.AnnData:
-    h5ad = sorted(indir.rglob("*.h5ad"))
+    preferred = sorted(indir.rglob("allen_merfish_brain.h5ad"))
+    h5ad = preferred or sorted(indir.rglob("*.h5ad"))
     if h5ad:
-        return ad.read_h5ad(h5ad[0])
+        adata = ad.read_h5ad(h5ad[0])
+        _ensure_spatial_key(adata)
+        return adata
     counts = sorted(indir.rglob("*counts*.csv*"))
     coords = sorted(indir.rglob("*coord*.csv*"))
     if counts and coords:
@@ -42,31 +52,91 @@ def load_merfish(indir: Path) -> ad.AnnData:
     raise FileNotFoundError(f"No MERFISH matrix found under {indir}")
 
 
+def _ensure_spatial_key(adata: ad.AnnData) -> None:
+    """Map whatever coordinate array the object ships to obsm['spatial']."""
+    if "spatial" in adata.obsm:
+        return
+    for key in list(adata.obsm.keys()):
+        if "spatial" in key.lower() or "coord" in key.lower():
+            adata.obsm["spatial"] = np.asarray(adata.obsm[key])
+            return
+    raise KeyError(f"No spatial coordinates found in .obsm (keys: {list(adata.obsm.keys())})")
+
+
+def _age_order(values: pd.Series) -> list[str]:
+    """Order age labels by their numeric prefix: 4wk < 24wk < 90wk."""
+    def key(v: str) -> tuple[int, str]:
+        m = re.match(r"\s*(\d+)", v)
+        return (int(m.group(1)) if m else 0, v)
+
+    return sorted({str(v) for v in values}, key=key)
+
+
+def _iter_sections(
+    adata: ad.AnnData,
+    age: str,
+    age_key: str,
+    group_keys: tuple[str, ...] = GROUP_KEYS,
+    min_cells: int = MIN_CELLS_PER_SECTION,
+):
+    """Yield (section_name, section_adata) for one age group, per (donor, slice)."""
+    sub = adata[adata.obs[age_key].astype(str) == age]
+    keys = [k for k in group_keys if k in sub.obs.columns]
+    if not keys:
+        if sub.n_obs >= min_cells:
+            yield "all", sub.copy()
+        return
+    for name, idx in sub.obs.groupby(list(keys), observed=True).groups.items():
+        if len(idx) >= min_cells:
+            yield name, sub[sub.obs_names.isin(idx)].copy()
+
+
 def neighborhood_enrichment_by_age(
-    adata: ad.AnnData, celltype_key: str, age_key: str, spatial_key: str = "spatial"
+    adata: ad.AnnData,
+    celltype_key: str,
+    age_key: str,
+    group_keys: tuple[str, ...] = GROUP_KEYS,
 ) -> dict[str, pd.DataFrame]:
-    """sq.gr.nhood_enrichment per age group; returns z-score tables."""
+    """Mean sq.gr.nhood_enrichment z-scores per age, averaged over sections."""
+    cats = pd.Categorical(adata.obs[celltype_key]).categories
     out: dict[str, pd.DataFrame] = {}
-    for age in adata.obs[age_key].unique():
-        sub = adata[adata.obs[age_key] == age].copy()
-        if sub.n_obs < 500:
-            continue
-        sq.gr.spatial_neighbors(sub, coord_type="generic", spatial_key=spatial_key)
-        sq.gr.nhood_enrichment(sub, cluster_key=celltype_key)
-        out[str(age)] = pd.DataFrame(
-            sub.uns[f"{celltype_key}_nhood_enrichment"]["zscore"],
-            index=sub.obs[celltype_key].cat.categories,
-            columns=sub.obs[celltype_key].cat.categories,
-        )
+    for age in _age_order(adata.obs[age_key]):
+        zs = []
+        for _, section in _iter_sections(adata, age, age_key, group_keys):
+            section.obs[celltype_key] = section.obs[celltype_key].astype("category")
+            sq.gr.spatial_neighbors(section, coord_type="generic", spatial_key="spatial")
+            sq.gr.nhood_enrichment(section, cluster_key=celltype_key)
+            z = pd.DataFrame(
+                section.uns[f"{celltype_key}_nhood_enrichment"]["zscore"],
+                index=section.obs[celltype_key].cat.categories,
+                columns=section.obs[celltype_key].cat.categories,
+            )
+            zs.append(z.reindex(index=cats, columns=cats).to_numpy(dtype=float))
+        if zs:
+            out[age] = pd.DataFrame(np.nanmean(np.stack(zs), axis=0), index=cats, columns=cats)
     return out
 
 
-def morans_i(adata: ad.AnnData, genes: list[str]) -> pd.Series:
+def morans_i_by_age(
+    adata: ad.AnnData,
+    genes: list[str],
+    age_key: str,
+    group_keys: tuple[str, ...] = GROUP_KEYS,
+) -> pd.DataFrame:
+    """Moran's I per gene per age, averaged over sections (genes x ages)."""
     present = [g for g in genes if g in adata.var_names]
     if not present:
-        return pd.Series(dtype=float)
-    sq.gr.spatial_autocorr(adata, mode="moran", genes=present)
-    return adata.uns["moranI"]["I"]
+        return pd.DataFrame()
+    cols: dict[str, pd.Series] = {}
+    for age in _age_order(adata.obs[age_key]):
+        vals = []
+        for _, section in _iter_sections(adata, age, age_key, group_keys):
+            sq.gr.spatial_neighbors(section, coord_type="generic", spatial_key="spatial")
+            sq.gr.spatial_autocorr(section, mode="moran", genes=present)
+            vals.append(section.uns["moranI"]["I"].reindex(present))
+        if vals:
+            cols[age] = pd.concat(vals, axis=1).mean(axis=1)
+    return pd.DataFrame(cols)
 
 
 def main() -> None:
@@ -86,7 +156,15 @@ def main() -> None:
     sc.pp.log1p(adata)
 
     enrich = neighborhood_enrichment_by_age(adata, args.celltype_key, args.age_key)
-    summary: dict = {"ages_analyzed": list(enrich), "n_cells": int(adata.n_obs)}
+    n_sections = {
+        age: sum(1 for _ in _iter_sections(adata, age, args.age_key))
+        for age in _age_order(adata.obs[args.age_key])
+    }
+    summary: dict = {
+        "ages_analyzed": list(enrich),
+        "n_cells": int(adata.n_obs),
+        "n_sections_per_age": n_sections,
+    }
 
     n = max(len(enrich), 1)
     fig, axes = plt.subplots(1, n, figsize=(4.2 * n, 3.8), squeeze=False)
@@ -102,9 +180,10 @@ def main() -> None:
     fig.savefig(outdir / "nhood_enrichment.pdf")
     fig.savefig(outdir / "nhood_enrichment.png")
 
-    mi = morans_i(adata, AGING_MARKERS)
-    mi.to_csv(outdir / "morans_i_aging_markers.csv")
-    summary["morans_i"] = mi.to_dict() if len(mi) else {}
+    mi = morans_i_by_age(adata, AGING_MARKERS, args.age_key)
+    if not mi.empty:
+        mi.to_csv(outdir / "morans_i_aging_markers.csv")
+        summary["morans_i"] = mi.to_dict()
     (outdir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 

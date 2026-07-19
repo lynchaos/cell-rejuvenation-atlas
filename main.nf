@@ -18,7 +18,7 @@ params.skip_download = false         // use pre-staged data instead of fetching 
 
 include { DOWNLOAD_MODULE1; ANALYZE_CLOCK }        from './modules/rejuvenation_clock'
 include { DOWNLOAD_MODULE2; PREPROCESS; FATE }     from './modules/trajectory'
-include { DOWNLOAD_MODULE3; SCVI_INTEGRATE }       from './modules/integration'
+include { DOWNLOAD_MODULE3; AGING_SCORE }         from './modules/integration'
 include { DOWNLOAD_MODULE4; SPATIAL }              from './modules/spatial'
 include { DOWNLOAD_MODULE5; SASP }                 from './modules/sasp'
 
@@ -41,7 +41,7 @@ workflow {
     }
     if (run_module('integration')) {
         m3 = DOWNLOAD_MODULE3()
-        SCVI_INTEGRATE(m3)
+        AGING_SCORE(m3)
     }
     if (run_module('spatial')) {
         m4 = DOWNLOAD_MODULE4()

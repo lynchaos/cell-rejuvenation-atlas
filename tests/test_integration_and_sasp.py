@@ -1,7 +1,14 @@
 """Unit tests for integration scoring and SASP core logic (synthetic data)."""
 import numpy as np
 import pandas as pd
+import pytest
 
+from src.module3_multiomics_integration.aging_signature_score import (
+    collapse_by_symbol,
+    normalize_log_cpm,
+    parse_browder_sample,
+    tissue_stats,
+)
 from src.module3_multiomics_integration.factor_model import consensus_axes, modality_pcs
 from src.module3_multiomics_integration.rejuvenation_score import (
     aging_signature,
@@ -75,3 +82,47 @@ def test_differential_abundance_finds_planted_effect():
     design = pd.Series(["control"] * 8 + ["senescent"] * 8, index=m.index)
     de = differential_abundance(m, design)
     assert set(de.head(5).index) == {f"P{i}" for i in range(5)}
+
+
+def test_parse_browder_sample():
+    assert parse_browder_sample("Skeletal_Muscle_4F_m3") == ("Skeletal_Muscle", "4F")
+    assert parse_browder_sample("Lung_Control_m12") == ("Lung", "Control")
+    assert parse_browder_sample("Skin_4F_m1") == ("Skin", "4F")
+    with pytest.raises(ValueError):
+        parse_browder_sample("no_condition_token")
+
+
+def test_collapse_by_symbol_strips_versions_and_sums():
+    counts = pd.DataFrame(
+        {"s1": [1, 2, 4, 8], "s2": [0, 1, 0, 2]},
+        index=["ENSMUSG00000000001.4", "ENSMUSG00000000003", "ENSMUSG00000000001.4", "ENSMUSG99999999999"],
+    )
+    mapping = {"ENSMUSG00000000001": "Nans", "ENSMUSG00000000003": "Oct4"}
+    out = collapse_by_symbol(counts, mapping)
+    assert set(out.index) == {"Nans", "Oct4"}  # unmapped id dropped
+    assert out.loc["Nans", "s1"] == 5  # duplicated symbol summed
+
+
+def test_normalize_log_cpm():
+    counts = pd.DataFrame({"a": [10, 0], "b": [5, 5]}, index=["g1", "g2"])
+    out = normalize_log_cpm(counts)
+    assert np.isclose(out.loc["g1", "a"], np.log1p(1e6))
+    assert np.isclose(out.loc["g1", "b"], np.log1p(0.5e6))
+
+
+def test_tissue_stats_detects_younger_4f():
+    rng = np.random.default_rng(2)
+    meta = pd.DataFrame(
+        {"tissue": ["Lung"] * 8,
+         "condition": ["Control"] * 4 + ["4F"] * 4},
+        index=[f"s{i}" for i in range(8)],
+    )
+    scores = pd.Series(
+        np.concatenate([rng.normal(10, 0.5, 4), rng.normal(8, 0.5, 4)]),
+        index=meta.index,
+    )
+    stats = tissue_stats(scores, meta)
+    row = stats.iloc[0]
+    assert row["delta"] < 0
+    assert row["pvalue"] < 0.05
+    assert row["cohens_d"] < 0
