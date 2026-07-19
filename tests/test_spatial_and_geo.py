@@ -64,3 +64,15 @@ def test_nhood_enrichment_segregated_clusters():
     z = neighborhood_enrichment_z(spatial_connectivities(coords), labels, n_perms=200, seed=0)
     assert z.loc["A", "A"] > 0 and z.loc["B", "B"] > 0  # within-cluster contacts enriched
     assert z.loc["A", "B"] < 0  # between-cluster contacts depleted
+
+
+def test_nhood_enrichment_many_clusters_no_int_overflow():
+    # pd.Categorical.codes is int8 for small k; pair codes (k*k) must not
+    # overflow into negatives (regression: real MERFISH object has 13 types)
+    rng = np.random.default_rng(2)
+    k = 14
+    coords = np.vstack([rng.normal(1000 * i, 1, size=(30, 2)) for i in range(k)])
+    labels = pd.Series([f"c{i}" for i in range(k) for _ in range(30)])
+    z = neighborhood_enrichment_z(spatial_connectivities(coords), labels, n_perms=50, seed=0)
+    assert z.shape == (k, k)
+    assert (np.diag(z.to_numpy()) > 0).all()

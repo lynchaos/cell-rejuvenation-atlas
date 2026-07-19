@@ -106,7 +106,8 @@ def neighborhood_enrichment_z(
     cats, k = cat.categories, len(cat.categories)
     if (cat.codes < 0).any():
         raise ValueError(f"labels contain {int((cat.codes < 0).sum())} NaN values")
-    code = cat.codes
+    # int64: codes are int8/int16 for small k; k*k pair codes would overflow
+    code = cat.codes.astype(np.int64)
     coo = connectivities.tocoo()
 
     def pair_counts(c: np.ndarray) -> np.ndarray:
