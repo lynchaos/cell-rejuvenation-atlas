@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Batch infrastructure for the Cell Rejuvenation Atlas pipeline.
+  Creates a CPU spot compute environment and an optional GPU compute
+  environment, plus job queues, IAM roles, and a security group.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Batch compute resources
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for Batch compute resources
+  BucketName:
+    Type: String
+    Default: cell-rejuvenation-atlas-893223317248
+    Description: S3 bucket for pipeline work dir, data, and results
+  CpuMinvCpus:
+    Type: Number
+    Default: 0
+  CpuMaxvCpus:
+    Type: Number
+    Default: 64
+  GpuMinvCpus:
+    Type: Number
+    Default: 0
+  GpuMaxvCpus:
+    Type: Number
+    Default: 4
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Security group
+  # ---------------------------------------------------------------------------
+  BatchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Rejuvenation Atlas Batch instances
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: rejuvenation-atlas-batch-sg
+
+  # ---------------------------------------------------------------------------
+  # IAM: service role for AWS Batch
+  # ---------------------------------------------------------------------------
+  BatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rejuvenation-atlas-batch-service-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: batch.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+      Tags:
+        - Key: Name
+          Value: rejuvenation-atlas-batch-service-role
+
+  # ---------------------------------------------------------------------------
+  # IAM: EC2 instance role for Batch container instances
+  # ---------------------------------------------------------------------------
+  EcsInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rejuvenation-atlas-ecs-instance-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      Tags:
+        - Key: Name
+          Value: rejuvenation-atlas-ecs-instance-role
+
+  EcsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: rejuvenation-atlas-ecs-instance-profile
+      Roles:
+        - !Ref EcsInstanceRole
+
+  BucketPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: rejuvenation-atlas-s3-access
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - !Sub arn:aws:s3:::${BucketName}
+              - !Sub arn:aws:s3:::${BucketName}/*
+      Roles:
+        - !Ref EcsInstanceRole
+
+  # ---------------------------------------------------------------------------
+  # Spot fleet role (required for SPOT allocation strategy)
+  # ---------------------------------------------------------------------------
+  SpotFleetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rejuvenation-atlas-spot-fleet-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: spotfleet.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole
+      Tags:
+        - Key: Name
+          Value: rejuvenation-atlas-spot-fleet-role
+
+  # ---------------------------------------------------------------------------
+  # Compute environments
+  # ---------------------------------------------------------------------------
+  CpuComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: rejuvenation-atlas-cpu-spot
+      Type: MANAGED
+      State: ENABLED
+      ComputeResources:
+        Type: SPOT
+        MinvCpus: !Ref CpuMinvCpus
+        MaxvCpus: !Ref CpuMaxvCpus
+        DesiredvCpus: 0
+        InstanceTypes:
+          - c5.xlarge
+          - c5.2xlarge
+          - m5.xlarge
+          - m5.2xlarge
+          - m5.4xlarge
+        Subnets: !Ref SubnetIds
+        SecurityGroupIds:
+          - !Ref BatchSecurityGroup
+        InstanceRole: !Ref EcsInstanceProfile
+        SpotIamFleetRole: !GetAtt SpotFleetRole.Arn
+        AllocationStrategy: SPOT_CAPACITY_OPTIMIZED
+        Tags:
+          Name: rejuvenation-atlas-cpu-spot
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+
+  GpuComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: rejuvenation-atlas-gpu-spot
+      Type: MANAGED
+      State: ENABLED
+      ComputeResources:
+        Type: SPOT
+        MinvCpus: !Ref GpuMinvCpus
+        MaxvCpus: !Ref GpuMaxvCpus
+        DesiredvCpus: 0
+        InstanceTypes:
+          - g4dn.xlarge
+          - g4dn.2xlarge
+        Subnets: !Ref SubnetIds
+        SecurityGroupIds:
+          - !Ref BatchSecurityGroup
+        InstanceRole: !Ref EcsInstanceProfile
+        SpotIamFleetRole: !GetAtt SpotFleetRole.Arn
+        AllocationStrategy: SPOT_CAPACITY_OPTIMIZED
+        Tags:
+          Name: rejuvenation-atlas-gpu-spot
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+
+  # ---------------------------------------------------------------------------
+  # Job queues
+  # ---------------------------------------------------------------------------
+  CpuJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: rejuvenation-atlas-queue
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref CpuComputeEnvironment
+
+  GpuJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: rejuvenation-atlas-gpu-queue
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref GpuComputeEnvironment
+
+Outputs:
+  CpuJobQueue:
+    Description: CPU spot job queue
+    Value: !Ref CpuJobQueue
+  GpuJobQueue:
+    Description: GPU spot job queue
+    Value: !Ref GpuJobQueue
+  SecurityGroup:
+    Description: Batch security group
+    Value: !Ref BatchSecurityGroup
