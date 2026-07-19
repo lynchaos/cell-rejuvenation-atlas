@@ -104,6 +104,8 @@ def neighborhood_enrichment_z(
     """
     cat = pd.Categorical(labels)
     cats, k = cat.categories, len(cat.categories)
+    if (cat.codes < 0).any():
+        raise ValueError(f"labels contain {int((cat.codes < 0).sum())} NaN values")
     code = cat.codes
     coo = connectivities.tocoo()
 
@@ -162,6 +164,10 @@ def neighborhood_enrichment_by_age(
     for age in _age_order(adata.obs[age_key]):
         zs = []
         for _, section in _iter_sections(adata, age, age_key, group_keys):
+            # Cells without a cell-type call cannot be graph nodes
+            section = section[section.obs[celltype_key].notna()].copy()
+            if section.n_obs < MIN_CELLS_PER_SECTION:
+                continue
             graph = spatial_connectivities(section.obsm["spatial"])
             z = neighborhood_enrichment_z(graph, section.obs[celltype_key])
             zs.append(z.reindex(index=cats, columns=cats).to_numpy(dtype=float))
@@ -208,6 +214,7 @@ def main() -> None:
     use_style()
 
     adata = load_merfish(Path(args.input))
+    sc.pp.filter_cells(adata, min_counts=1)  # empty segmentation artifacts break normalize
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)
 
