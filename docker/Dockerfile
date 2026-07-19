@@ -3,8 +3,11 @@
 FROM mambaorg/micromamba:1.5.8
 
 COPY environment.yml /tmp/environment.yml
+# Cache-bust token: increment when environment.yml dependencies change.
+ARG CONDA_CACHE_BUST=1
 RUN micromamba create -y -n atlas -f /tmp/environment.yml && \
-    micromamba clean --all --yes
+    micromamba clean --all --yes && \
+    aws --version
 
 ENV PATH=/opt/conda/envs/atlas/bin:$PATH \
     MPLBACKEND=Agg
