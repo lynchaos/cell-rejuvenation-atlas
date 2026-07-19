@@ -1,0 +1,42 @@
+name: Deploy to Hugging Face Spaces
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'spaces/**'
+      - '.github/workflows/deploy_spaces.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Hugging Face CLI
+        run: pip install huggingface-hub
+
+      - name: Create Space (if it does not exist)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
+        run: |
+          : "${HF_SPACE_REPO:?set HF_SPACE_REPO secret, e.g. username/cell-rejuvenation-atlas}"
+          hf repos create "${HF_SPACE_REPO}" \
+            --type space --sdk streamlit \
+            --exist-ok --public \
+            --token "${HF_TOKEN}"
+
+      - name: Upload app to Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
+        run: |
+          : "${HF_SPACE_REPO:?set HF_SPACE_REPO secret}"
+          hf upload "${HF_SPACE_REPO}" spaces/ . \
+            --type space \
+            --commit-message "deploy app from GitHub Actions" \
+            --token "${HF_TOKEN}"
