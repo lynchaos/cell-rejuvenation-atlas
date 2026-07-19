@@ -48,7 +48,7 @@ def load_merfish(indir: Path) -> ad.AnnData:
     if h5ad:
         adata = ad.read_h5ad(h5ad[0])
         _ensure_spatial_key(adata)
-        return adata
+        return _use_raw_counts(adata)
     counts = sorted(indir.rglob("*counts*.csv*"))
     coords = sorted(indir.rglob("*coord*.csv*"))
     if counts and coords:
@@ -57,6 +57,26 @@ def load_merfish(indir: Path) -> ad.AnnData:
         a.obsm["spatial"] = xy.loc[a.obs_names].to_numpy()
         return a
     raise FileNotFoundError(f"No MERFISH matrix found under {indir}")
+
+
+def _use_raw_counts(adata: ad.AnnData) -> ad.AnnData:
+    """Swap a normalized X for the raw-count .raw layer and symbol var_names.
+
+    The CELLxGENE object ships scaled/normalized values in X (negative entries)
+    with raw counts in .raw and gene symbols in var['feature_name'] while
+    var_names are Ensembl IDs. Downstream steps (count filter, CPM normalize,
+    marker lookup) need the raw, symbol-indexed matrix.
+    """
+    if adata.raw is None:
+        return adata
+    spatial = np.asarray(adata.obsm["spatial"])
+    raw = adata.raw.to_adata()
+    raw.obsm["spatial"] = spatial
+    raw.obs = adata.obs.copy()
+    if "feature_name" in raw.var.columns:
+        raw.var_names = raw.var["feature_name"].astype(str).to_numpy()
+        raw.var_names_make_unique()
+    return raw
 
 
 def _ensure_spatial_key(adata: ad.AnnData) -> None:

@@ -8,6 +8,7 @@ from src.common.geo import _bucket
 from src.module4_spatial_aging.spatial_analysis import (
     AGING_MARKERS,
     _age_order,
+    _use_raw_counts,
     morans_i,
     neighborhood_enrichment_z,
     spatial_connectivities,
@@ -76,3 +77,23 @@ def test_nhood_enrichment_many_clusters_no_int_overflow():
     z = neighborhood_enrichment_z(spatial_connectivities(coords), labels, n_perms=50, seed=0)
     assert z.shape == (k, k)
     assert (np.diag(z.to_numpy()) > 0).all()
+
+
+def test_use_raw_counts_swaps_x_and_symbols():
+    anndata = pytest.importorskip("anndata")
+    norm = anndata.AnnData(
+        X=np.array([[-0.5, 0.2], [0.1, -0.3]], dtype=np.float32),
+        obs=pd.DataFrame(index=["c1", "c2"]),
+        var=pd.DataFrame({"feature_name": ["Gfap", "B2m"]},
+                         index=["ENSMUSG000001", "ENSMUSG000002"]),
+    )
+    norm.obsm["spatial"] = np.array([[0.0, 0.0], [1.0, 1.0]])
+    norm.raw = anndata.AnnData(
+        X=np.array([[5, 0], [0, 7]], dtype=np.float32),
+        obs=norm.obs,
+        var=norm.var.copy(),
+    )
+    out = _use_raw_counts(norm)
+    assert list(out.var_names) == ["Gfap", "B2m"]
+    assert out.X.sum() == 12  # raw counts, not the normalized matrix
+    assert out.obsm["spatial"].shape == (2, 2)
