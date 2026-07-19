@@ -1,4 +1,4 @@
-"""Spatial analysis of MERFISH aging-brain data with Squidpy.
+"""Spatial analysis of MERFISH aging-brain data (scanpy/numpy, no squidpy).
 
 Computes, per age group:
   * neighborhood enrichment (do cell types co-localize more with age?)
@@ -9,8 +9,13 @@ z-scores / Moran's I values are averaged across sections of the same age.
 Pooling cells across sections would create false spatial neighbors between
 cells that were never on the same tissue slice.
 
+The statistics follow squidpy/esda semantics exactly (kNN graph, label-
+permutation enrichment z-scores, global Moran's I) but are implemented
+directly here: squidpy 1.6 imports anndata.io, removed in anndata 0.9, which
+makes it uninstallable alongside a modern scanpy/anndata stack.
+
 Usage:
-    python -m src.module4_spatial_aging.squidpy_analysis \
+    python -m src.module4_spatial_aging.spatial_analysis \
         --input data/module4 --outdir results/module4 \
         --celltype-key cell_type --age-key age
 """
@@ -26,13 +31,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import squidpy as sq
+import scipy.sparse as sp
 
 from src.common.plotting import use_style
 
 AGING_MARKERS = ["C4b", "Cst3", "B2m", "Gfap", "Aqp1", "Il33", "Vim"]
 GROUP_KEYS = ("donor_id", "slice")
 MIN_CELLS_PER_SECTION = 500
+N_NEIGHBORS = 6
+N_PERMS = 1000
 
 
 def load_merfish(indir: Path) -> ad.AnnData:
@@ -72,6 +79,58 @@ def _age_order(values: pd.Series) -> list[str]:
     return sorted({str(v) for v in values}, key=key)
 
 
+def spatial_connectivities(coords: np.ndarray, n_neigh: int = N_NEIGHBORS) -> sp.csr_matrix:
+    """Symmetric binary kNN graph over coordinates (squidpy 'generic' equivalent)."""
+    from sklearn.neighbors import NearestNeighbors
+
+    coords = np.asarray(coords, dtype=float)
+    n = min(n_neigh + 1, len(coords))  # +1: the query point itself is neighbor 0
+    knn = NearestNeighbors(n_neighbors=n).fit(coords).kneighbors_graph(coords, mode="connectivity")
+    knn.setdiag(0)
+    knn.eliminate_zeros()
+    return knn.maximum(knn.T).tocsr()
+
+
+def neighborhood_enrichment_z(
+    connectivities: sp.csr_matrix,
+    labels: pd.Series,
+    n_perms: int = N_PERMS,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Label-permutation enrichment z-scores of cluster-pair contacts.
+
+    Squidpy semantics: count graph edges between every pair of clusters, then
+    z = (observed - permuted mean) / permuted std over n_perms label shuffles.
+    """
+    cat = pd.Categorical(labels)
+    cats, k = cat.categories, len(cat.categories)
+    code = cat.codes
+    coo = connectivities.tocoo()
+
+    def pair_counts(c: np.ndarray) -> np.ndarray:
+        pairs = c[coo.row] * k + c[coo.col]
+        return np.bincount(pairs, minlength=k * k).reshape(k, k).astype(float)
+
+    observed = pair_counts(code)
+    rng = np.random.default_rng(seed)
+    perms = np.stack([pair_counts(rng.permutation(code)) for _ in range(n_perms)])
+    mean, std = perms.mean(axis=0), perms.std(axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z = np.where(std > 0, (observed - mean) / std, np.nan)
+    return pd.DataFrame(z, index=cats, columns=cats)
+
+
+def morans_i(connectivities: sp.csr_matrix, x: np.ndarray) -> float:
+    """Global Moran's I (esda semantics): (n / S0) * z'Wz / z'z, z = x - mean(x)."""
+    x = np.asarray(x, dtype=float).ravel()
+    z = x - x.mean()
+    denom = float(z @ z)
+    s0 = float(connectivities.sum())
+    if denom == 0 or s0 == 0:
+        return np.nan
+    return float((connectivities.shape[0] / s0) * float(z @ (connectivities @ z)) / denom)
+
+
 def _iter_sections(
     adata: ad.AnnData,
     age: str,
@@ -97,20 +156,14 @@ def neighborhood_enrichment_by_age(
     age_key: str,
     group_keys: tuple[str, ...] = GROUP_KEYS,
 ) -> dict[str, pd.DataFrame]:
-    """Mean sq.gr.nhood_enrichment z-scores per age, averaged over sections."""
+    """Mean neighborhood-enrichment z-scores per age, averaged over sections."""
     cats = pd.Categorical(adata.obs[celltype_key]).categories
     out: dict[str, pd.DataFrame] = {}
     for age in _age_order(adata.obs[age_key]):
         zs = []
         for _, section in _iter_sections(adata, age, age_key, group_keys):
-            section.obs[celltype_key] = section.obs[celltype_key].astype("category")
-            sq.gr.spatial_neighbors(section, coord_type="generic", spatial_key="spatial")
-            sq.gr.nhood_enrichment(section, cluster_key=celltype_key)
-            z = pd.DataFrame(
-                section.uns[f"{celltype_key}_nhood_enrichment"]["zscore"],
-                index=section.obs[celltype_key].cat.categories,
-                columns=section.obs[celltype_key].cat.categories,
-            )
+            graph = spatial_connectivities(section.obsm["spatial"])
+            z = neighborhood_enrichment_z(graph, section.obs[celltype_key])
             zs.append(z.reindex(index=cats, columns=cats).to_numpy(dtype=float))
         if zs:
             out[age] = pd.DataFrame(np.nanmean(np.stack(zs), axis=0), index=cats, columns=cats)
@@ -131,9 +184,12 @@ def morans_i_by_age(
     for age in _age_order(adata.obs[age_key]):
         vals = []
         for _, section in _iter_sections(adata, age, age_key, group_keys):
-            sq.gr.spatial_neighbors(section, coord_type="generic", spatial_key="spatial")
-            sq.gr.spatial_autocorr(section, mode="moran", genes=present)
-            vals.append(section.uns["moranI"]["I"].reindex(present))
+            graph = spatial_connectivities(section.obsm["spatial"])
+            x = section[:, present].X
+            x = x.toarray() if sp.issparse(x) else np.asarray(x)
+            vals.append(pd.Series(
+                [morans_i(graph, x[:, j]) for j in range(len(present))], index=present
+            ))
         if vals:
             cols[age] = pd.concat(vals, axis=1).mean(axis=1)
     return pd.DataFrame(cols)

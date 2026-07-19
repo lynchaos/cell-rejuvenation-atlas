@@ -54,7 +54,8 @@ def score_fates(adata: ad.AnnData) -> pd.Series:
     present_ipsc = [g for g in IPSC_MARKERS if g in adata.var_names]
     present_stromal = [g for g in STROMAL_MARKERS if g in adata.var_names]
     if not present_ipsc or not present_stromal:
-        raise ValueError("Marker genes missing from matrix; check gene naming.")
+        missing = [g for g in IPSC_MARKERS + STROMAL_MARKERS if g not in adata.var_names]
+        raise ValueError(f"Marker genes missing from matrix: {missing}")
     sc.tl.score_genes(adata, present_ipsc, score_name="ipsc_score")
     sc.tl.score_genes(adata, present_stromal, score_name="stromal_score")
     fate = pd.Series("other", index=adata.obs_names)

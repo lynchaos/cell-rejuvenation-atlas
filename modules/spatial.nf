@@ -13,7 +13,7 @@ process DOWNLOAD_MODULE4 {
 }
 
 process SPATIAL {
-    tag 'squidpy-spatial'
+    tag 'merfish-spatial'
     publishDir "${params.outdir}/module4", mode: 'copy'
     label 'medium'
 
@@ -25,7 +25,7 @@ process SPATIAL {
 
     script:
     """
-    python -m src.module4_spatial_aging.squidpy_analysis \
+    python -m src.module4_spatial_aging.spatial_analysis \
         --input ${data_dir} --outdir module4_out
     """
 }

@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
+from src.module2_reprogramming_trajectory.fate_analysis import IPSC_MARKERS, STROMAL_MARKERS
+
 
 def parse_sample_name(name: str) -> tuple[float, str]:
     """'GSM2836276_D9-1-2i' -> (9.0, '2i'); 'GSM2836269_D2-2' -> (2.0, 'serum')."""
@@ -70,8 +72,10 @@ def preprocess(adata: ad.AnnData, n_hvg: int = 2000, n_pcs: int = 50) -> ad.AnnD
     sc.pp.log1p(adata)
     sc.pp.highly_variable_genes(adata, n_top_genes=n_hvg, flavor="seurat")
     # Subset before scale(): scaling densifies the matrix (250k x 20k would
-    # not fit in memory); PCA uses highly_variable genes anyway.
-    adata = adata[:, adata.var["highly_variable"]].copy()
+    # not fit in memory); PCA uses highly_variable genes anyway. Fate marker
+    # genes are kept explicitly — fate_analysis.score_fates needs them.
+    keep = adata.var["highly_variable"] | adata.var_names.isin(IPSC_MARKERS + STROMAL_MARKERS)
+    adata = adata[:, keep].copy()
     sc.pp.scale(adata, max_value=10)
     sc.pp.pca(adata, n_comps=n_pcs)
     sc.pp.neighbors(adata, n_pcs=min(n_pcs, 30))

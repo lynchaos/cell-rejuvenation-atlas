@@ -11,11 +11,11 @@ Allen et al. (2023, *Cell*) used MERFISH to map how cell types and their **spati
 ## What the code does
 
 1. `download_data.py` — fetch the annotated h5ad from CELLxGENE.
-2. `squidpy_analysis.py` — spatial kNN graphs, neighborhood enrichment and Moran's I for aging markers, per age group. **All graphs are built within a (donor, slice) section** and statistics averaged across sections — pooling cells across slices would create false spatial neighbors.
+2. `spatial_analysis.py` — spatial kNN graphs, neighborhood enrichment and Moran's I for aging markers, per age group (scanpy/numpy implementations of the squidpy/esda statistics; squidpy is uninstallable with modern anndata). **All graphs are built within a (donor, slice) section** and statistics averaged across sections — pooling cells across slices would create false spatial neighbors.
 
 ## Run
 
 ```bash
 python -m src.module4_spatial_aging.download_data --outdir data/module4
-python -m src.module4_spatial_aging.squidpy_analysis --input data/module4 --outdir results/module4
+python -m src.module4_spatial_aging.spatial_analysis --input data/module4 --outdir results/module4
 ```
