@@ -48,11 +48,3 @@ workflow {
     }
 }
 
-workflow.onComplete {
-    log.info """\
-        Pipeline finished : ${workflow.success}
-        Duration          : ${workflow.duration}
-        Work dir          : ${workflow.workDir}
-        Results           : ${params.outdir}
-        """.stripIndent()
-}
