@@ -90,7 +90,9 @@ elif module.startswith("3"):
     else:
         st.caption("Browder 2022 bulk RNA-seq (6 tissues, 7-month cyclic OSK) projected "
                    "onto the Tabula Muris Senis aging axis. Negative Δ = 4F shifted young.")
-        st.dataframe(df, use_container_width=True)
+        # st.text instead of st.dataframe: pyarrow segfaults on aarch64 during
+        # Streamlit's Arrow serialization of DataFrames
+        st.text(df.to_string(index=False))
         png = RESULTS / "module3" / "aging_score.png"
         if png.exists():
             st.image(str(png))
@@ -114,7 +116,7 @@ else:
         missing("sasp")
     else:
         st.metric("Core SASP proteins", len(df))
-        st.dataframe(df, use_container_width=True)
+        st.text(df.to_string(index=False))  # see note above re: pyarrow on aarch64
         png = RESULTS / "module5" / "sasp_per_inducer.png"
         if png.exists():
             st.image(str(png))
