@@ -6,6 +6,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import tarfile
 from pathlib import Path
 
 from src.common.geo import download_supplementary, list_supplementary
@@ -33,6 +34,16 @@ def main() -> None:
 
     files = download_supplementary(GSE, outdir, patterns=args.patterns, manifest_path=MANIFEST)
     print(f"[done] downloaded: {[f.name for f in files]}")
+
+    # GEO RAW bundles per-sample 10x triplets in a single tar; unpack in place
+    for f in files:
+        if f.suffix == ".tar":
+            with tarfile.open(f) as tf:
+                try:
+                    tf.extractall(outdir, filter="data")
+                except TypeError:  # python < 3.11.4 lacks the filter argument
+                    tf.extractall(outdir)
+            print(f"  extracted {f.name}")
 
 
 if __name__ == "__main__":
