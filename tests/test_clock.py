@@ -1,9 +1,21 @@
 """Unit tests for the epigenetic-clock machinery (synthetic data)."""
+import gzip
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.common.stats import benjamini_hochberg, paired_bootstrap_delta
+from src.common.stats import (
+    benjamini_hochberg,
+    effect_size_cohens_d,
+    paired_bootstrap_delta,
+    unpaired_bootstrap_delta,
+)
+from src.module1_rejuvenation_clock.analyze_gill import (
+    infer_arm,
+    infer_day,
+    load_beta,
+)
 from src.module1_rejuvenation_clock.clock import (
     EpigeneticClock,
     horvath_transform,
@@ -66,3 +78,43 @@ def test_benjamini_hochberg_monotone():
     q = benjamini_hochberg(p)
     assert np.all(np.diff(q[np.argsort(p)]) >= -1e-12)
     assert q[0] < 0.01
+
+
+def test_infer_day_title_formats():
+    assert infer_day("MPTR day 13 rep 2") == 13.0
+    assert infer_day("O2_transiently_reprogrammed_13days_exp1") == 13.0
+    assert np.isnan(infer_day("O1 Fib"))
+
+
+def test_infer_arm_gill_titles():
+    assert infer_arm("O3_transiently_reprogrammed_15days_exp1") == "transient"
+    assert infer_arm("O2_transient_reprogramming_intermediate_17days_exp2") == "transient"
+    assert infer_arm("O1_failed_to_transiently_reprogram_15days_exp1") == "failed"
+    assert infer_arm("O2_failing_to_transiently_reprogram_intermediate_17days_exp2") == "failed"
+    assert infer_arm("O1_negative_control_15days_exp1") == "control"
+    assert infer_arm("O1 Fib") == "baseline"
+
+
+def test_load_beta_sniffs_delimiter_and_drops_pval_columns(tmp_path):
+    # GEO ships comma-separated content under a .txt.gz name, with a
+    # 'Detection Pval' column interleaved after every sample.
+    with gzip.open(tmp_path / "matrix.txt.gz", "wt") as fh:
+        fh.write(
+            "ID_REF,s1,Detection Pval,s2,Detection Pval\n"
+            "cg1,0.5,0.001,0.6,0.002\n"
+            "cg2,0.7,0.0,0.8,0.0\n"
+            "cg3,0.9,0.0,0.1,0.0\n"
+        )
+    df = load_beta(str(tmp_path))
+    assert df.shape == (2, 3)  # samples x probes after transpose
+    assert set(df.columns) == {"cg1", "cg2", "cg3"}
+    assert set(df.index) == {"s1", "s2"}
+
+
+def test_unpaired_bootstrap_detects_rejuvenation():
+    rng = np.random.default_rng(0)
+    control = rng.normal(58, 3, 9)
+    transient = control - rng.normal(20, 3, 9)
+    delta, lo, hi = unpaired_bootstrap_delta(transient, control, n_boot=2000)
+    assert delta < -15 and hi < 0
+    assert effect_size_cohens_d(transient, control) < -2
