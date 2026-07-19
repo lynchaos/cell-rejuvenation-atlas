@@ -6,7 +6,7 @@ GitHub Actions (see `.github/workflows/docker.yml`). AWS only provides compute
 
 1. **S3**: create a bucket for the Nextflow work dir and results.
    ```bash
-   aws s3 mb s3://YOUR-BUCKET --region us-east-1
+   aws s3 mb s3://cell-rejuvenation-atlas-893223317248 --region eu-west-2
    ```
 2. **Batch**: create two compute environments + job queues:
    * `rejuvenation-atlas-queue` — spot, c5/m5 families (CPU jobs)
@@ -16,8 +16,9 @@ GitHub Actions (see `.github/workflows/docker.yml`). AWS only provides compute
    * The instance role (or a secret injected into the job) needs a GitHub token
      with `read:packages` scope so it can pull the GHCR image.
    * Your user needs `batch:SubmitJob`.
-4. Edit `conf/awsbatch.config` (replace `YOUR-BUCKET` and `ghcr.io/...` if you
-   forked the repo), then run:
+4. `conf/awsbatch.config` is already configured for bucket
+   `s3://cell-rejuvenation-atlas-893223317248` and region `eu-west-2`. If you
+   forked the repo, update the container URI and bucket name, then run:
 
    ```bash
    nextflow run main.nf -profile awsbatch --module all
