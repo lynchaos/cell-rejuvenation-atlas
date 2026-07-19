@@ -10,7 +10,8 @@ RUN micromamba create -y -n atlas -f /tmp/environment.yml && \
     /opt/conda/envs/atlas/bin/aws --version
 
 ENV PATH=/opt/conda/envs/atlas/bin:$PATH \
-    MPLBACKEND=Agg
+    MPLBACKEND=Agg \
+    PYTHONPATH=/opt/atlas
 
 WORKDIR /opt/atlas
 COPY src/ ./src/
