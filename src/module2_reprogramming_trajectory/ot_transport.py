@@ -67,14 +67,21 @@ def fate_probability(
 ) -> np.ndarray:
     """Probability that each initial cell ends in a given terminal fate.
 
-    terminal_fate_mask : boolean vector over cells at the final time point.
-    Returns one fate probability per cell at the *first* time point.
+    terminal_fate_mask : boolean vector over cells at the final time point
+    (aligned with the last coupling's target cells). Returns one fate
+    probability per cell at the *first* time point. Equivalent to pushing
+    each initial cell through the chain — computed as a single chained
+    product by linearity.
     """
-    n0 = couplings[0].shape[0]
-    eye = np.eye(n0)
     mask = np.asarray(terminal_fate_mask, dtype=float)
-    probs = np.empty(n0)
-    for i in range(n0):
-        traj = push_forward(eye[i], couplings)
-        probs[i] = traj @ mask
-    return probs
+    if couplings[-1].shape[1] != mask.size:
+        raise ValueError(
+            f"terminal mask size {mask.size} does not match the last "
+            f"coupling's target dimension {couplings[-1].shape[1]}"
+        )
+    chained: np.ndarray | None = None
+    for gamma in couplings:
+        row_sums = gamma.sum(axis=1, keepdims=True)
+        transition = np.divide(gamma, row_sums, where=row_sums > 0)
+        chained = transition if chained is None else chained @ transition
+    return chained @ mask

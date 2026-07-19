@@ -30,23 +30,30 @@ STROMAL_MARKERS = ["Col1a1", "Col1a2", "Dcn", "Lum", "Sparc"]
 
 def build_couplings(
     adata: ad.AnnData, day_column: str, max_cells_per_day: int = 2000, seed: int = 0
-) -> tuple[list[np.ndarray], list[float]]:
-    """Compute OT couplings between consecutive days in PCA space."""
+) -> tuple[list[np.ndarray], list[float], np.ndarray]:
+    """Compute OT couplings between consecutive days in PCA space.
+
+    Each day is subsampled ONCE (the same subset plays source and target in
+    the two couplings it touches), so the chained product is consistent.
+    Returns (couplings, days, positional indices of the terminal-day subset).
+    """
     rng = np.random.default_rng(seed)
     days = np.sort(adata.obs[day_column].unique())
+    subsets: dict[float, np.ndarray] = {}
+    for d in days:
+        idx = np.flatnonzero((adata.obs[day_column] == d).to_numpy())
+        if idx.size > max_cells_per_day:
+            idx = idx[rng.choice(idx.size, max_cells_per_day, replace=False)]
+        subsets[d] = idx
     couplings: list[np.ndarray] = []
     for d0, d1 in zip(days[:-1], days[1:]):
-        src = adata[adata.obs[day_column] == d0]
-        tgt = adata[adata.obs[day_column] == d1]
-        if src.n_obs > max_cells_per_day:
-            src = src[rng.choice(src.n_obs, max_cells_per_day, replace=False)]
-        if tgt.n_obs > max_cells_per_day:
-            tgt = tgt[rng.choice(tgt.n_obs, max_cells_per_day, replace=False)]
+        src = adata[subsets[d0]]
+        tgt = adata[subsets[d1]]
         g = estimate_growth_rates(src.n_obs, tgt.n_obs, dt=float(d1 - d0))
         couplings.append(
             transport_map(src.obsm["X_pca"], tgt.obsm["X_pca"], growth=g, dt=float(d1 - d0))
         )
-    return couplings, [float(d) for d in days]
+    return couplings, [float(d) for d in days], subsets[days[-1]]
 
 
 def score_fates(adata: ad.AnnData) -> pd.Series:
@@ -80,10 +87,9 @@ def main() -> None:
 
     adata = ad.read_h5ad(args.adata)
     adata.obs["fate"] = score_fates(adata)
-    couplings, days = build_couplings(adata, args.day_column)
+    couplings, days, terminal_idx = build_couplings(adata, args.day_column)
 
-    last_day = days[-1]
-    terminal = adata.obs[adata.obs[args.day_column] == last_day]
+    terminal = adata.obs.iloc[terminal_idx]
     ipsc_mask = (terminal["fate"] == "iPSC").to_numpy()
     # Fate probabilities for cells at the first day (subsampled to match coupling size)
     n0 = couplings[0].shape[0]

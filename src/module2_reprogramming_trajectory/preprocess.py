@@ -72,7 +72,9 @@ def load_matrix(indir: Path) -> ad.AnnData:
     for a in adatas:
         a.var_names_make_unique()
     combined = ad.concat(adatas, join="inner") if len(adatas) > 1 else adatas[0]
-    return combined[~combined.obs["day"].isna()].copy()
+    combined = combined[~combined.obs["day"].isna()].copy()
+    combined.obs_names_make_unique()  # 10x barcodes repeat across samples
+    return combined
 
 
 def preprocess(adata: ad.AnnData, n_hvg: int = 2000, n_pcs: int = 50) -> ad.AnnData:
