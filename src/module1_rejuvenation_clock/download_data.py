@@ -62,7 +62,7 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     metas = []
-    for arm, gse in {**METHYLATION_SERIES, **RNASEQ_SERIES}.items():
+    for arm, gse in list(METHYLATION_SERIES.items()) + list(RNASEQ_SERIES.items()):
         print(f"[download] {gse} ({arm})")
         matrix = fetch_series_matrix(gse, outdir)
         meta = parse_series_matrix_metadata(matrix)
