@@ -7,7 +7,7 @@ COPY environment.yml /tmp/environment.yml
 ARG CONDA_CACHE_BUST=1
 RUN micromamba create -y -n atlas -f /tmp/environment.yml && \
     micromamba clean --all --yes && \
-    aws --version
+    /opt/conda/envs/atlas/bin/aws --version
 
 ENV PATH=/opt/conda/envs/atlas/bin:$PATH \
     MPLBACKEND=Agg
