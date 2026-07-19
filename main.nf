@@ -14,6 +14,7 @@ params.datadir      = 'data'
 params.from_fastq   = false
 params.clock_coef   = null           // path to published clock coefficients CSV
 params.max_epochs   = 400
+params.skip_download = false         // use pre-staged data instead of fetching from GEO
 
 include { DOWNLOAD_MODULE1; ANALYZE_CLOCK }        from './modules/rejuvenation_clock'
 include { DOWNLOAD_MODULE2; PREPROCESS; FATE }     from './modules/trajectory'
@@ -25,9 +26,13 @@ def run_module(String name) { params.module == 'all' || params.module == name }
 
 workflow {
     if (run_module('rejuvenation_clock')) {
-        m1 = DOWNLOAD_MODULE1()
         coef_ch = Channel.fromPath(params.clock_coef ?: "${projectDir}/assets/NO_COEF")
-        ANALYZE_CLOCK(m1, coef_ch)
+        if (params.skip_download) {
+            ANALYZE_CLOCK(Channel.fromPath(params.datadir, type: 'dir'), coef_ch)
+        } else {
+            m1 = DOWNLOAD_MODULE1()
+            ANALYZE_CLOCK(m1, coef_ch)
+        }
     }
     if (run_module('trajectory')) {
         m2 = DOWNLOAD_MODULE2()
