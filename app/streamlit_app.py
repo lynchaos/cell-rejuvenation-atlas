@@ -65,9 +65,10 @@ if module.startswith("1"):
         if stats_path.exists():
             stats = json.loads(stats_path.read_text())
             cols = st.columns(3)
-            cols[0].metric("Δ age (peak vs day 0)", f"{stats.get('delta_years', 0):.1f} y")
+            cols[0].metric(f"Δ age ({stats.get('contrast', 'peak vs day 0')})",
+                           f"{stats.get('delta_years', 0):.1f} y")
             cols[1].metric("95% CI", f"[{stats.get('ci95', [0, 0])[0]:.1f}, {stats.get('ci95', [0, 0])[1]:.1f}]")
-            cols[2].metric("Cohen's dz", f"{stats.get('cohens_dz', 0):.2f}")
+            cols[2].metric("Cohen's d", f"{stats.get('cohens_dz', 0):.2f}")
 
 elif module.startswith("2"):
     st.header("Fate probabilities from optimal transport")
