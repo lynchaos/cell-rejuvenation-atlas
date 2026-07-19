@@ -24,4 +24,5 @@ COPY main.nf nextflow.config ./
 COPY modules/ ./modules/
 COPY conf/ ./conf/
 
-ENTRYPOINT ["python"]
+# Nextflow supplies its own command; do not override ENTRYPOINT.
+ENTRYPOINT []
