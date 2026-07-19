@@ -22,6 +22,7 @@ dependencies:
   - requests=2.32.*
   - pyyaml=6.*
   - pytest=8.*
+  - awscli=2.*
   - nextflow=23.10.*
   - pip
   - pip:
