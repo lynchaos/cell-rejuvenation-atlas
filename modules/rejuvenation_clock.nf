@@ -25,17 +25,18 @@ process ANALYZE_CLOCK {
     path 'module1_out'
 
     script:
-    def train_ages = file("${data_dir}/module1_train_ages.csv")
-    def train_arg = (coef.name == 'NO_COEF' && train_ages.exists())
-        ? "--train-beta ${data_dir}/module1_beta.csv --train-ages ${train_ages}"
-        : ''
     def coef_arg = coef.name != 'NO_COEF' ? "--coef ${coef}" : ''
     """
+    train_arg=""
+    if [ "${coef.name}" = "NO_COEF" ] && [ -f "${data_dir}/module1_train_ages.csv" ]; then
+        train_arg="--train-beta ${data_dir}/module1_beta.csv --train-ages ${data_dir}/module1_train_ages.csv"
+    fi
+
     python -m src.module1_rejuvenation_clock.analyze_gill \
         --beta ${data_dir}/module1_beta.csv \
         --metadata ${data_dir}/metadata.csv \
         ${coef_arg} \
-        ${train_arg} \
+        \$train_arg \
         --outdir module1_out
     """
 }
