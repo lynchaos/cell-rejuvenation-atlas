@@ -59,3 +59,6 @@ data/raw/
 # App cache with real results (keep directory, not contents)
 app/cache/*
 !app/cache/.gitkeep
+
+# Generated static site (rebuild with site/build.py)
+site/public/
