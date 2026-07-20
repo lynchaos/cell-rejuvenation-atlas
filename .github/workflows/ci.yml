@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          environment-name: rejuvenation-atlas
+          cache-environment: true
+
+      - name: Run unit tests
+        shell: bash -l {0}
+        run: pytest tests/ -q
+
+      - name: Run pipeline smoke test (synthetic data)
+        shell: bash -l {0}
+        run: nextflow run main.nf -profile test,local
