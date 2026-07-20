@@ -15,11 +15,15 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import theme
+
 RESULTS = Path("results")
 if "--results" in sys.argv:
     RESULTS = Path(sys.argv[sys.argv.index("--results") + 1])
 
 st.set_page_config(page_title="Rejuvenation Explorer", layout="wide")
+theme.inject()
+
 st.title("Cell Rejuvenation Atlas — Explorer")
 st.caption(
     "Interactive views over reproducible reanalyses of peer-reviewed aging & "
@@ -59,11 +63,16 @@ if module.startswith("1"):
         missing("rejuvenation_clock")
     else:
         fig = px.line(df, x="day", y="dnam_age", markers=True,
-                      labels={"day": "MPTR day", "dnam_age": "DNAm age (years)"},
-                      title="GSE165179 — DNAm age falls below baseline after MPTR")
+                      labels={"day": "MPTR day", "dnam_age": "DNAm age (years)"})
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown(
+            theme.figure_caption(1, "GSE165179 — DNAm age falls below baseline after maturation "
+                                     "phase transient reprogramming (MPTR)."),
+            unsafe_allow_html=True,
+        )
         if stats_path.exists():
             stats = json.loads(stats_path.read_text())
+            st.write("")
             cols = st.columns(3)
             cols[0].metric("Δ age (peak vs day 0)", f"{stats.get('delta_years', 0):.1f} y")
             cols[1].metric("95% CI", f"[{stats.get('ci95', [0, 0])[0]:.1f}, {stats.get('ci95', [0, 0])[1]:.1f}]")
@@ -76,11 +85,16 @@ elif module.startswith("2"):
         missing("trajectory")
     else:
         fig = px.histogram(df, x="ipsc_fate_prob", nbins=50,
-                           labels={"ipsc_fate_prob": "P(reach iPSC fate)"},
-                           title="Day-0 cells: probability of successful reprogramming")
+                           labels={"ipsc_fate_prob": "P(reach iPSC fate)"})
         st.plotly_chart(fig, use_container_width=True)
-        st.image(str(RESULTS / "module2" / "fate_analysis.png")
-                 if (RESULTS / "module2" / "fate_analysis.png").exists() else None)
+        st.markdown(
+            theme.figure_caption(2, "Day-0 cells — probability of successful reprogramming under "
+                                     "the fitted optimal-transport coupling."),
+            unsafe_allow_html=True,
+        )
+        png = RESULTS / "module2" / "fate_analysis.png"
+        if png.exists():
+            st.image(str(png))
 
 elif module.startswith("3"):
     st.header("Does partial reprogramming move aged cells toward young states?")
@@ -88,10 +102,19 @@ elif module.startswith("3"):
     if df is None:
         missing("integration")
     else:
-        st.dataframe(df, use_container_width=True)
+        st.markdown(theme.df_to_html(df), unsafe_allow_html=True)
+        st.markdown(
+            theme.table_caption(1, "Per-cell-type aging-axis scores, 4F vs. control."),
+            unsafe_allow_html=True,
+        )
         png = RESULTS / "module3" / "scvi_integration.png"
         if png.exists():
+            st.write("")
             st.image(str(png))
+            st.markdown(
+                theme.figure_caption(3, "scVI integration of aged and reprogrammed cell types."),
+                unsafe_allow_html=True,
+            )
 
 elif module.startswith("4"):
     st.header("Spatial neighborhood changes with age (MERFISH)")
@@ -101,9 +124,14 @@ elif module.startswith("4"):
     else:
         age = st.selectbox("Age group", [f.stem.replace("nhood_enrichment_", "") for f in files])
         z = pd.read_csv(RESULTS / "module4" / f"nhood_enrichment_{age}.csv", index_col=0)
-        fig = px.imshow(z, color_continuous_scale="RdBu_r", zmin=-z.abs().max().max(),
-                        zmax=z.abs().max().max(), title=f"Neighborhood enrichment z-scores — {age}")
+        fig = px.imshow(z, color_continuous_scale=theme.DIVERGING,
+                        zmin=-z.abs().max().max(), zmax=z.abs().max().max())
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown(
+            theme.figure_caption(4, f"Cell-type neighborhood enrichment z-scores — {age} cohort. "
+                                     "Positive values indicate co-localization above chance."),
+            unsafe_allow_html=True,
+        )
 
 else:
     st.header("Core SASP from proteomics")
@@ -112,10 +140,21 @@ else:
         missing("sasp")
     else:
         st.metric("Core SASP proteins", len(df))
-        st.dataframe(df, use_container_width=True)
+        st.write("")
+        st.markdown(theme.chip_list_html(df.iloc[:, 0].tolist()), unsafe_allow_html=True)
+        st.markdown(
+            theme.table_caption(2, "Proteins reproducibly induced across senescence inducers "
+                                    "(Basisty et al. 2020 SASP Atlas)."),
+            unsafe_allow_html=True,
+        )
         png = RESULTS / "module5" / "sasp_per_inducer.png"
         if png.exists():
+            st.write("")
             st.image(str(png))
+            st.markdown(
+                theme.figure_caption(5, "Core SASP protein abundance by senescence inducer."),
+                unsafe_allow_html=True,
+            )
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Built with Streamlit · figures regenerated from code, never pasted")
+st.sidebar.caption("Figures regenerated from versioned code — never pasted by hand.")
